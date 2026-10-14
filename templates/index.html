@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocDiff — Compare document versions</title>
+    
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            light: '#3BA4E8',
+                            DEFAULT: '#1a7bc4',
+                            dark: '#0a1220'
+                        },
+                        diff: {
+                            add: '#10b981', // Emerald 500
+                            addBg: '#d1fae5',
+                            del: '#f43f5e', // Rose 500
+                            delBg: '#ffe4e6',
+                            mod: '#3b82f6', // Blue 500
+                            modBg: '#dbeafe',
+                        }
+                    },
+                    animation: {
+                        'fade-in-up': 'fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                        'slide-in-right': 'slideInRight 0.3s ease-out forwards',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        fadeInUp: {
+                            '0%': { opacity: 0, transform: 'translateY(20px)' },
+                            '100%': { opacity: 1, transform: 'translateY(0)' },
+                        },
+                        slideInRight: {
+                            '0%': { opacity: 0, transform: 'translateX(20px)' },
+                            '100%': { opacity: 1, transform: 'translateX(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS for specific transitions and hidden scrollbars -->
+    <style>
+        body { background-color: #f8fafc; }
+        
+        /* Smooth height transitions for dynamic lists */
+        .version-list-move { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .version-row-enter { animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .version-row-leave { opacity: 0; transform: scale(0.95); transition: all 0.3s ease; }
+
+        /* Custom Drag & Drop styling */
+        .drop-zone { transition: all 0.2s ease; }
+        .drop-zone.dragover { 
+            background-color: #f1f5f9; 
+            border-color: #64748b; 
+            transform: scale(1.01);
+        }
+
+        /* Hide scrollbar for clean UI */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Mesh background effect */
+        .mesh-bg {
+            background-image: 
+                radial-gradient(at 10% 0%, hsla(210, 100%, 75%, 0.15) 0px, transparent 50%),
+                radial-gradient(at 90% 10%, hsla(190, 100%, 70%, 0.15) 0px, transparent 50%),
+                radial-gradient(at 50% 50%, hsla(220, 100%, 80%, 0.1) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased mesh-bg min-h-screen flex flex-col relative overflow-x-hidden">
+
+    <header class="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/60 transition-all duration-300" id="header">
+        <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+            <a href="{{ url_for('home') }}" class="flex items-center gap-3 group text-decoration-none">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-brand-DEFAULT flex items-center justify-center text-white font-serif font-bold text-lg shadow-lg shadow-brand-DEFAULT/30 group-hover:scale-105 transition-transform">
+                    DD
+                </div>
+                <div>
+                    <span class="font-bold text-xl tracking-tight text-slate-900">Doc<span class="text-brand-DEFAULT">Diff</span></span>
+                    <p class="text-[10px] font-semibold tracking-wider text-slate-500 uppercase leading-none mt-0.5">Workspace</p>
+                </div>
+            </a>
+            <div class="hidden md:flex items-center gap-4 text-sm font-medium text-slate-500">
+                <a href="{{ url_for('home') }}" class="hover:text-brand-DEFAULT transition-colors flex items-center gap-1.5">
+                    <i class="ph-bold ph-house"></i> Home
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow pt-28 pb-20">
+        
+        <section class="max-w-5xl mx-auto px-6 mb-20 text-center sm:text-left">
+            <div class="flex flex-col md:flex-row gap-12 items-center">
+                <div class="flex-1 opacity-0 animate-fade-in-up" style="animation-delay: 0.1s;">
+                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-brand-DEFAULT text-xs font-bold uppercase tracking-wider mb-6">
+                        <span class="w-2 h-2 rounded-full bg-brand-DEFAULT animate-pulse-slow"></span>
+                        <span id="workspace-greeting">Your comparison workspace</span>
+                    </div>
+                    <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 tracking-tight leading-[1.1] mb-6">
+                        <span id="dynamic-greeting" class="block text-2xl md:text-3xl text-slate-500 font-medium mb-2">Welcome!</span>
+                        Upload your versions — we'll show you <span class="text-brand-DEFAULT">exactly what changed.</span>
+                    </h1>
+                    <p class="text-lg text-slate-600 leading-relaxed max-w-2xl mb-8">
+                        Add files in chronological order (oldest first). DocDiff compares them block by block and builds an interactive report you can filter, review, and download.
+                    </p>
+                    <div class="flex flex-wrap gap-4 justify-center sm:justify-start">
+                        <a href="#compare-tool" class="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 flex items-center gap-2">
+                            Start Comparing <i class="ph-bold ph-arrow-right"></i>
+                        </a>
+                        <a href="#how-it-works" class="px-6 py-3 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-medium transition-all flex items-center gap-2">
+                            How it works
+                        </a>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-[400px] flex flex-col gap-4 opacity-0 animate-fade-in-up" style="animation-delay: 0.3s;">
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex items-center justify-between group hover:shadow-md transition-all">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-diff-addBg text-diff-add flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
+                                <i class="ph-bold ph-plus"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-900">Additions</h3>
+                                <p class="text-xs text-slate-500">New content blocks</p>
+                            </div>
+                        </div>
+                        <div class="font-mono text-sm font-semibold text-diff-add bg-diff-addBg/50 px-2 py-1 rounded">++</div>
+                    </div>
+                    
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex items-center justify-between group hover:shadow-md transition-all translate-x-4">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-diff-delBg text-diff-del flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
+                                <i class="ph-bold ph-minus"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-900">Deletions</h3>
+                                <p class="text-xs text-slate-500">Removed content</p>
+                            </div>
+                        </div>
+                        <div class="font-mono text-sm font-semibold text-diff-del bg-diff-delBg/50 px-2 py-1 rounded">--</div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex items-center justify-between group hover:shadow-md transition-all">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-xl bg-diff-modBg text-diff-mod flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
+                                <i class="ph-bold ph-pencil-simple"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-900">Modifications</h3>
+                                <p class="text-xs text-slate-500">Edited wording</p>
+                            </div>
+                        </div>
+                        <div class="font-mono text-sm font-semibold text-diff-mod bg-diff-modBg/50 px-2 py-1 rounded">~~</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="compare-tool" class="max-w-4xl mx-auto px-6 opacity-0 animate-fade-in-up" style="animation-delay: 0.5s;">
+            <div class="bg-white rounded-[2rem] shadow-xl border border-slate-200/60 p-6 md:p-10 relative overflow-hidden">
+                <!-- Decorative background elements -->
+                <div class="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+                
+                <div class="mb-8 relative z-10">
+                    <h2 class="text-2xl font-bold text-slate-900 mb-2">Compare your versions</h2>
+                    <p class="text-slate-500 text-sm">Add versions in chronological order. Accepted formats: <span class="font-mono font-medium bg-slate-100 px-1 py-0.5 rounded text-slate-700">.txt, .md, .docx, .pdf</span></p>
+                </div>
+
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                <div class="mb-6 relative z-10 space-y-2">
+                    {% for message in messages %}
+                    <div class="flex items-center gap-3 py-3 px-4 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 text-sm font-semibold">
+                        <i class="ph-fill ph-warning-circle text-rose-500 text-xl"></i>
+                        {{ message }}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% endwith %}
+
+                <!-- Interactive Form -->
+                <form id="compare-form" action="{{ url_for('compare') }}" method="POST" enctype="multipart/form-data" onsubmit="handleFormSubmit(event)" class="relative z-10">
+                    <div id="version-list" class="flex flex-col gap-4 mb-6">
+                        <!-- Version rows will be injected here by JS -->
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row items-center justify-between gap-4 mt-8 pt-6 border-t border-slate-100">
+                        <button type="button" onclick="addVersion()" class="w-full sm:w-auto px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all flex items-center justify-center gap-2">
+                            <i class="ph-bold ph-plus"></i> Add another version
+                        </button>
+                        
+                        <button type="submit" id="submit-btn" class="w-full sm:w-auto px-8 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold shadow-lg shadow-slate-900/20 transition-all hover:-translate-y-0.5 flex items-center justify-center gap-2 group">
+                            <span id="submit-text">Generate Diff Report</span>
+                            <i class="ph-bold ph-magic-wand group-hover:rotate-12 transition-transform" id="submit-icon"></i>
+                            <!-- Spinner (hidden by default) -->
+                            <svg id="submit-spinner" class="animate-spin -ml-1 mr-2 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section id="how-it-works" class="max-w-6xl mx-auto px-6 mt-32">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl font-bold text-slate-900">How DocDiff Works</h2>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Step 1 -->
+                <div class="bg-white/50 backdrop-blur-sm border border-slate-200 p-8 rounded-3xl relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 p-6 text-9xl font-black text-slate-50 opacity-50 -translate-y-10 translate-x-10 group-hover:scale-110 transition-transform duration-500 pointer-events-none">1</div>
+                    <div class="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-xl shadow-lg mb-6 relative z-10">
+                        <i class="ph-bold ph-upload-simple"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-slate-900 mb-3 relative z-10">Upload the versions</h3>
+                    <p class="text-slate-600 leading-relaxed relative z-10">Add each version of the document in chronological order. Label them clearly (e.g., "Draft 1", "Final") so the resulting report reads logically.</p>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="bg-white/50 backdrop-blur-sm border border-slate-200 p-8 rounded-3xl relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 p-6 text-9xl font-black text-slate-50 opacity-50 -translate-y-10 translate-x-10 group-hover:scale-110 transition-transform duration-500 pointer-events-none">2</div>
+                    <div class="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-xl shadow-lg mb-6 relative z-10">
+                        <i class="ph-bold ph-tree-structure"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-slate-900 mb-3 relative z-10">Block-by-block compare</h3>
+                    <p class="text-slate-600 leading-relaxed relative z-10">Behind the scenes, DocDiff splits the documents into blocks, matches equivalent paragraphs across versions, and mathematically classifies every change.</p>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="bg-white/50 backdrop-blur-sm border border-slate-200 p-8 rounded-3xl relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 p-6 text-9xl font-black text-slate-50 opacity-50 -translate-y-10 translate-x-10 group-hover:scale-110 transition-transform duration-500 pointer-events-none">3</div>
+                    <div class="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center text-xl shadow-lg mb-6 relative z-10">
+                        <i class="ph-bold ph-magnifying-glass"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-slate-900 mb-3 relative z-10">Review the report</h3>
+                    <p class="text-slate-600 leading-relaxed relative z-10">Get a beautifully structured, filterable report highlighting word-level edits. Perfect for peer review, compliance checks, or auditing approvals.</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-white border-t border-slate-200/60 pt-16 pb-8 mt-auto">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+                <div class="md:col-span-2">
+                    <h3 class="font-bold text-xl text-slate-900 mb-2 flex items-center gap-2">
+                        <div class="w-8 h-8 rounded bg-gradient-to-br from-blue-600 to-brand-DEFAULT flex items-center justify-center text-white font-serif text-sm">DD</div>
+                        DocDiff
+                    </h3>
+                    <p class="text-sm text-slate-500 leading-relaxed mb-6 max-w-sm">
+                        Compare document versions, understand what changed, and create clear review reports.
+                    </p>
+                    <div class="flex flex-wrap gap-4">
+                        <a href="{{ url_for('home') }}" class="w-10 h-10 rounded-full bg-slate-50 shadow-sm border border-slate-200 flex items-center justify-center text-slate-600 hover:text-brand-DEFAULT hover:border-brand-light transition-colors" title="Back to DocDiff home"><i class="ph-bold ph-house text-xl"></i></a>
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold text-slate-900 mb-4">Important Links</h4>
+                    <ul class="space-y-2 text-sm text-slate-600">
+                        <li><a href="{{ url_for('home') }}" class="hover:text-brand-DEFAULT transition-colors">About DocDiff</a></li>
+                        <li><a href="{{ url_for('workspace') }}" class="hover:text-brand-DEFAULT transition-colors">Workspace</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold text-slate-900 mb-4">Ready to compare</h4>
+                    <p class="text-sm text-slate-500 leading-relaxed mb-4">
+                        Upload two or more versions to see additions, deletions, and modifications side by side.
+                    </p>
+                </div>
+            </div>
+            
+            <div class="border-t border-slate-100 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+                <p class="text-xs text-slate-500">&copy; 2026 DocDiff · Document Comparator</p>
+                <div class="text-xs text-slate-500 flex items-center gap-1">
+                    Made with <i class="ph-fill ph-heart text-red-500"></i> under guidance.
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[100] flex flex-col gap-3 pointer-events-none"></div>
+
+    <script>
+        // State management
+        let versionCount = 0;
+        const MIN_VERSIONS = 2;
+        const MAX_VERSIONS = {{ max_versions | default(5) }};
+
+        // Set Dynamic Greeting
+        function setGreeting() {
+            const hour = new Date().getHours();
+            let greeting = 'Good evening,';
+            
+            if (hour >= 5 && hour < 12) greeting = 'Good morning,';
+            else if (hour >= 12 && hour < 17) greeting = 'Good afternoon,';
+            else if (hour >= 17 && hour < 22) greeting = 'Good evening,';
+            else greeting = 'Working late?';
+
+            const visited = localStorage.getItem('docdiff_visited');
+            if (visited) greeting += ' ready for another compare?';
+            else greeting += ' let\'s get started.';
+
+            const greetingEl = document.getElementById('dynamic-greeting');
+            if (greetingEl) greetingEl.textContent = greeting;
+
+            const workspaceEl = document.getElementById('workspace-greeting');
+            if (workspaceEl) {
+                const tips = ['Drag & drop supported', 'Up to 5 versions', 'TXT · MD · DOCX · PDF'];
+                workspaceEl.textContent = tips[new Date().getDay() % tips.length];
+            }
+        }
+
+        // Initialize the form with required default rows
+        document.addEventListener('DOMContentLoaded', () => {
+            setGreeting();
+            addVersion('Base Version (e.g. Draft 1)');
+            addVersion('Modified Version (e.g. Final)');
+        });
+
+        // Sticky Navbar Effect
+        window.addEventListener('scroll', () => {
+            const header = document.getElementById('header');
+            if (window.scrollY > 10) {
+                header.classList.add('shadow-sm', 'bg-white/90');
+                header.classList.remove('bg-white/80');
+            } else {
+                header.classList.remove('shadow-sm', 'bg-white/90');
+                header.classList.add('bg-white/80');
+            }
+        });
+
+        // Add a new version row
+        function addVersion(placeholderText = null) {
+            if (versionCount >= MAX_VERSIONS) {
+                showToast(`Maximum of ${MAX_VERSIONS} versions allowed at once.`, 'error');
+                return;
+            }
+
+            versionCount++;
+            const list = document.getElementById('version-list');
+            const rowId = `version-row-${Date.now()}`;
+            
+            const row = document.createElement('div');
+            row.id = rowId;
+            row.className = 'version-row-enter bg-slate-50/50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row gap-4 items-start md:items-center relative group transition-all hover:bg-slate-50 hover:shadow-sm';
+            
+            const pText = placeholderText || `Label, e.g. Draft ${versionCount}`;
+
+            row.innerHTML = `
+                <!-- Badge & Label -->
+                <div class="flex items-center gap-3 w-full md:w-1/3">
+                    <div class="version-badge w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center shrink-0 shadow-inner">
+                        ${versionCount}
+                    </div>
+                    <div class="w-full relative">
+                        <input type="text" name="labels" placeholder="${pText}" required
+                            class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium text-slate-800 placeholder:text-slate-400">
+                    </div>
+                </div>
+
+                <!-- Drag and Drop File Area -->
+                <div class="w-full md:w-2/3 flex items-center gap-3">
+                    <div class="drop-zone relative w-full border-2 border-dashed border-slate-300 bg-white rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer group-hover:border-slate-400 transition-all"
+                         onclick="this.querySelector('input[type=file]').click()"
+                         ondragover="handleDragOver(event, this)"
+                         ondragleave="handleDragLeave(event, this)"
+                         ondrop="handleDrop(event, this)">
+                        
+                        <div class="flex items-center gap-3 pointer-events-none truncate">
+                            <div class="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
+                                <i class="ph-duotone ph-file-text text-lg file-icon"></i>
+                            </div>
+                            <div class="truncate text-left">
+                                <p class="text-sm font-semibold text-slate-700 file-name truncate">Select or drag a file</p>
+                                <p class="text-xs text-slate-400 file-size">PDF, DOCX, TXT, MD</p>
+                            </div>
+                        </div>
+                        
+                        <div class="shrink-0 pointer-events-none">
+                            <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-semibold group-hover:bg-slate-200 transition-colors">Browse</span>
+                        </div>
+
+                        <input type="file" name="documents" accept=".txt,.md,.docx,.pdf" required class="hidden" onchange="handleFileSelect(this)">
+                    </div>
+
+                    <!-- Remove Button (Hidden if less than MIN_VERSIONS) -->
+                    <button type="button" onclick="removeVersion('${rowId}')" 
+                        class="remove-btn shrink-0 w-10 h-10 rounded-xl bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors border border-red-100 focus:outline-none"
+                        title="Remove version">
+                        <i class="ph-bold ph-trash"></i>
+                    </button>
+                </div>
+            `;
+            
+            list.appendChild(row);
+            updateRowNumbersAndButtons();
+        }
+
+        // Remove a version row
+        function removeVersion(rowId) {
+            const list = document.getElementById('version-list');
+            if (list.children.length <= MIN_VERSIONS) {
+                showToast(`You need at least ${MIN_VERSIONS} versions to compare.`, 'error');
+                return;
+            }
+
+            const row = document.getElementById(rowId);
+            // Add exit animation class
+            row.classList.remove('version-row-enter');
+            row.classList.add('version-row-leave');
+            
+            setTimeout(() => {
+                row.remove();
+                versionCount--;
+                updateRowNumbersAndButtons();
+            }, 300); // Matches CSS transition duration
+        }
+
+        // Re-index badges and toggle delete button visibility
+        function updateRowNumbersAndButtons() {
+            const rows = document.querySelectorAll('.version-row-enter, .version-row-leave');
+            const canDelete = rows.length > MIN_VERSIONS;
+
+            rows.forEach((row, index) => {
+                // Update badge number
+                const badge = row.querySelector('.version-badge');
+                if (badge) badge.textContent = index + 1;
+                
+                // Toggle delete button visibility based on rules
+                const delBtn = row.querySelector('.remove-btn');
+                if (delBtn) {
+                    if (canDelete) {
+                        delBtn.classList.remove('hidden');
+                        delBtn.classList.add('flex');
+                    } else {
+                        delBtn.classList.add('hidden');
+                        delBtn.classList.remove('flex');
+                    }
+                }
+            });
+        }
+
+        // --- Drag and Drop Logic ---
+
+        function handleDragOver(e, dropZone) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('dragover', 'border-blue-400', 'bg-blue-50/50');
+            dropZone.classList.remove('border-slate-300', 'bg-white');
+        }
+
+        function handleDragLeave(e, dropZone) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('dragover', 'border-blue-400', 'bg-blue-50/50');
+            dropZone.classList.add('border-slate-300', 'bg-white');
+        }
+
+        function handleDrop(e, dropZone) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDragLeave(e, dropZone);
+
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files && files.length > 0) {
+                const input = dropZone.querySelector('input[type=file]');
+                // Assign files to the hidden input (DataTransfer is required to set FileList)
+                input.files = files;
+                // Trigger change event to update UI
+                handleFileSelect(input);
+            }
+        }
+
+        function handleFileSelect(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const dropZone = input.closest('.drop-zone');
+            const nameEl = dropZone.querySelector('.file-name');
+            const sizeEl = dropZone.querySelector('.file-size');
+            const iconEl = dropZone.querySelector('.file-icon');
+
+            nameEl.textContent = file.name;
+            nameEl.classList.replace('text-slate-700', 'text-blue-700');
+            
+            // Format file size
+            let size = file.size;
+            if (size < 1024) size = size + ' B';
+            else if (size < 1024 * 1024) size = (size / 1024).toFixed(1) + ' KB';
+            else size = (size / (1024 * 1024)).toFixed(2) + ' MB';
+            
+            sizeEl.textContent = size;
+            
+            // Change icon style based on selection
+            const iconContainer = iconEl.parentElement;
+            iconContainer.classList.replace('bg-slate-100', 'bg-blue-100');
+            iconContainer.classList.replace('text-slate-500', 'text-blue-600');
+            
+            // Validate extension visually
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (!['txt', 'md', 'docx', 'pdf'].includes(ext)) {
+                showToast('Unsupported file type. Please use TXT, MD, DOCX, or PDF.', 'error');
+                input.value = ''; // Reset
+                nameEl.textContent = 'Select or drag a file';
+                nameEl.classList.replace('text-blue-700', 'text-slate-700');
+                sizeEl.textContent = 'PDF, DOCX, TXT, MD';
+                iconContainer.classList.replace('bg-blue-100', 'bg-slate-100');
+                iconContainer.classList.replace('text-blue-600', 'text-slate-500');
+            }
+        }
+
+        // --- Form Submission & Toast Logic ---
+
+        function handleFormSubmit(e) {
+            const fileInputs = document.querySelectorAll('input[type="file"]');
+            let allFilled = true;
+            fileInputs.forEach(input => { if (input.files.length === 0) allFilled = false; });
+
+            if (!allFilled) {
+                e.preventDefault();
+                showToast('Please select a file for all versions before continuing.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('submit-btn');
+            const text = document.getElementById('submit-text');
+            const icon = document.getElementById('submit-icon');
+            const spinner = document.getElementById('submit-spinner');
+
+            btn.disabled = true;
+            btn.classList.add('cursor-wait', 'opacity-90');
+            text.textContent = 'Analyzing blocks...';
+            icon.classList.add('hidden');
+            spinner.classList.remove('hidden');
+        }
+
+        // Custom Toast Notification System
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let icon, border, bg, textColor;
+            if (type === 'success') {
+                icon = '<i class="ph-fill ph-check-circle text-emerald-500 text-xl"></i>';
+                border = 'border-emerald-200';
+                bg = 'bg-emerald-50';
+                textColor = 'text-emerald-800';
+            } else if (type === 'error') {
+                icon = '<i class="ph-fill ph-warning-circle text-rose-500 text-xl"></i>';
+                border = 'border-rose-200';
+                bg = 'bg-rose-50';
+                textColor = 'text-rose-800';
+            } else {
+                icon = '<i class="ph-fill ph-info text-blue-500 text-xl"></i>';
+                border = 'border-blue-200';
+                bg = 'bg-blue-50';
+                textColor = 'text-blue-800';
+            }
+
+            toast.className = `flex items-center gap-3 py-3 px-4 rounded-xl shadow-lg border ${border} ${bg} opacity-0 translate-y-4 transition-all duration-300 pointer-events-auto`;
+            toast.innerHTML = `
+                ${icon}
+                <span class="text-sm font-semibold ${textColor}">${message}</span>
+            `;
+            
+            container.appendChild(toast);
+            
+            // Animate in
+            requestAnimationFrame(() => {
+                toast.classList.remove('opacity-0', 'translate-y-4');
+            });
+            
+            // Remove after delay
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'scale-95');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocDiff | Document Comparator</title>
+    
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Space Grotesk', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            light: '#3BA4E8',
+                            DEFAULT: '#1a7bc4',
+                            dark: '#0a1220'
+                        },
+                        diff: {
+                            add: '#10b981', // Emerald 500
+                            addBg: '#d1fae5',
+                            del: '#f43f5e', // Rose 500
+                            delBg: '#ffe4e6',
+                            mod: '#3b82f6', // Blue 500
+                            modBg: '#dbeafe',
+                        }
+                    },
+                    animation: {
+                        'blob': 'blob 10s infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'slide-up-fade': 'slideUpFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        blob: {
+                            '0%': { transform: 'translate(0px, 0px) scale(1)' },
+                            '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+                            '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+                            '100%': { transform: 'translate(0px, 0px) scale(1)' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-15px)' },
+                        },
+                        slideUpFade: {
+                            '0%': { opacity: 0, transform: 'translateY(40px)' },
+                            '100%': { opacity: 1, transform: 'translateY(0)' },
+                        },
+                        gradientShift: {
+                            '0%': { backgroundPosition: '0% 50%' },
+                            '50%': { backgroundPosition: '100% 50%' },
+                            '100%': { backgroundPosition: '0% 50%' },
+                        },
+                        shine: {
+                            '0%': { left: '-100%' },
+                            '100%': { left: '120%' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            background-color: #f8fafc;
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(210,100%,75%,0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, hsla(190,100%,70%,0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, hsla(220,100%,80%,0.1) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, hsla(200,100%,75%,0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .glass-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 32px -1px rgba(26, 123, 196, 0.15);
+        }
+
+        .text-gradient-animated {
+            background: linear-gradient(270deg, #1a7bc4, #06b6d4, #3b82f6, #1a7bc4);
+            background-size: 300% 300%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: gradientShift 6s ease infinite;
+        }
+
+        .btn-shine {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-shine::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 50%;
+            height: 100%;
+            background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+            transform: skewX(-20deg);
+            transition: all 0.5s;
+        }
+        
+        .btn-shine:hover::after {
+            animation: shine 0.7s forwards;
+        }
+
+        .magnetic-wrap {
+            display: inline-block;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .tilt-card {
+            transform-style: preserve-3d;
+            transition: transform 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        
+        .tilt-inner {
+            transform: translateZ(40px);
+        }
+
+        /* Scroll Reveal Utility Classes */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.8s cubic-bezier(0.5, 0, 0, 1);
+        }
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="text-slate-800 relative overflow-x-hidden min-h-screen flex flex-col">
+
+    <div class="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0">
+        <div class="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-400/20 rounded-full mix-blend-multiply filter blur-[100px] animate-blob"></div>
+        <div class="absolute top-[20%] right-[-10%] w-96 h-96 bg-brand-light/20 rounded-full mix-blend-multiply filter blur-[100px] animate-blob" style="animation-delay: 2s;"></div>
+        <div class="absolute bottom-[-20%] left-[20%] w-[500px] h-[500px] bg-emerald-400/20 rounded-full mix-blend-multiply filter blur-[100px] animate-blob" style="animation-delay: 4s;"></div>
+    </div>
+
+    <header class="fixed top-0 w-full z-50 glass border-b border-white/50 transition-all duration-300" id="navbar">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+            <!-- Brand -->
+            <a href="{{ url_for('home') }}" class="flex items-center gap-3 group">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-brand-DEFAULT flex items-center justify-center text-white font-serif font-bold text-lg shadow-lg shadow-brand-DEFAULT/30 group-hover:scale-105 transition-transform">
+                    DD
+                </div>
+                <div>
+                    <h1 class="font-display font-bold text-xl leading-tight text-slate-900 tracking-tight">Doc<span class="text-brand-DEFAULT">Diff</span></h1>
+                    <p class="text-[10px] font-semibold tracking-wider text-slate-500 uppercase leading-none mt-0.5">Version comparison, simplified</p>
+                </div>
+            </a>
+            
+            <!-- Nav Links (Desktop) -->
+            <nav class="hidden md:flex items-center gap-8">
+                <a href="#features" class="text-sm font-medium text-slate-600 hover:text-brand-DEFAULT transition-colors">Features</a>
+                <a href="#how-it-works" class="text-sm font-medium text-slate-600 hover:text-brand-DEFAULT transition-colors">How it works</a>
+            </nav>
+
+            <!-- CTA -->
+            <div class="flex items-center gap-3">
+            <a href="{{ url_for('workspace') }}" class="hidden sm:flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-full text-sm font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 btn-shine">
+                Start comparing <i class="ph-bold ph-arrow-right"></i>
+            </a>
+            <button id="mobile-menu-btn" class="md:hidden text-slate-600 p-2 rounded-lg hover:bg-white/60 transition-colors" aria-label="Open menu">
+                <i class="ph-bold ph-list text-2xl" id="menu-icon-open"></i>
+                <i class="ph-bold ph-x text-2xl hidden" id="menu-icon-close"></i>
+            </button>
+            </div>
+        </div>
+        <!-- Mobile nav -->
+        <div id="mobile-menu" class="hidden md:hidden border-t border-white/50 glass">
+            <div class="px-4 py-4 flex flex-col gap-3">
+                <a href="#features" class="mobile-nav-link px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-white/60">Features</a>
+                <a href="#how-it-works" class="mobile-nav-link px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-white/60">How it works</a>
+                <a href="{{ url_for('workspace') }}" class="px-4 py-3 rounded-xl text-sm font-bold text-white bg-slate-900 text-center">Start comparing</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="relative z-10 pt-20 flex-grow">
+        
+        <section class="min-h-[90vh] flex items-center justify-center pt-10 pb-20 px-4 sm:px-6 lg:px-8">
+            <div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+                
+                <!-- Hero Text -->
+                <div class="text-center lg:text-left animate-slide-up-fade">
+                    <p id="hero-greeting" class="text-lg font-medium text-slate-500 mb-3">Welcome back.</p>
+
+                    <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/80 border border-slate-200/80 text-slate-600 text-sm font-medium mb-6 shadow-sm">
+                        <i class="ph-duotone ph-sparkle text-brand-DEFAULT text-base"></i>
+                        <span id="hero-context">Built for your review workflow</span>
+                    </div>
+                    
+                    <h1 class="text-5xl lg:text-6xl xl:text-7xl font-display font-bold text-slate-900 tracking-tight leading-[1.08] mb-6">
+                        Your documents.<br>
+                        <span class="text-gradient-animated">Every change, clear.</span>
+                    </h1>
+                    
+                    <p class="text-lg text-slate-600 mb-6 max-w-xl mx-auto lg:mx-0 leading-relaxed">
+                        Drop in two or more versions — drafts, finals, policy updates — and get a beautiful side-by-side report of every addition, deletion, and edit. No more scrolling through PDFs hoping you didn't miss something.
+                    </p>
+
+                    <!-- Format pills -->
+                    <div class="flex flex-wrap gap-2 justify-center lg:justify-start mb-8">
+                        <span class="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600 flex items-center gap-1.5"><i class="ph-bold ph-file-text text-slate-400"></i> TXT</span>
+                        <span class="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600 flex items-center gap-1.5"><i class="ph-bold ph-file-md text-slate-400"></i> MD</span>
+                        <span class="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600 flex items-center gap-1.5"><i class="ph-bold ph-file-doc text-blue-500"></i> DOCX</span>
+                        <span class="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600 flex items-center gap-1.5"><i class="ph-bold ph-file-pdf text-rose-500"></i> PDF</span>
+                    </div>
+                    
+                    <div class="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start">
+                        <div class="magnetic-wrap w-full sm:w-auto" data-magnetic>
+                            <a href="{{ url_for('workspace') }}" class="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl text-base font-bold shadow-xl shadow-slate-900/25 transition-all hover:shadow-2xl hover:-translate-y-0.5 flex items-center justify-center gap-2 btn-shine relative z-10">
+                                Compare my documents <i class="ph-bold ph-arrow-right"></i>
+                            </a>
+                        </div>
+                        <div class="magnetic-wrap w-full sm:w-auto" data-magnetic>
+                            <a href="#how-it-works" class="w-full sm:w-auto px-8 py-4 glass hover:bg-white/80 rounded-2xl text-slate-700 text-base font-bold transition-all flex items-center justify-center gap-2 relative z-10 border border-white/60">
+                                <i class="ph-bold ph-play-circle"></i> See how it works
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Quick trust strip -->
+                    <div class="mt-10 pt-8 border-t border-slate-200/60 grid grid-cols-3 gap-4 max-w-md mx-auto lg:mx-0">
+                        <div class="text-center lg:text-left">
+                            <div class="text-2xl font-display font-bold text-slate-900">&lt;30s</div>
+                            <div class="text-xs text-slate-500 font-medium mt-0.5">Typical compare time</div>
+                        </div>
+                        <div class="text-center lg:text-left">
+                            <div class="text-2xl font-display font-bold text-slate-900">Word-level</div>
+                            <div class="text-xs text-slate-500 font-medium mt-0.5">Edit highlighting</div>
+                        </div>
+                        <div class="text-center lg:text-left">
+                            <div class="text-2xl font-display font-bold text-slate-900">2–5</div>
+                            <div class="text-xs text-slate-500 font-medium mt-0.5">Versions at once</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hero Visual (3D Parallax Diff Editor) -->
+                <div class="relative hidden lg:block animate-float" id="hero-visual-container">
+                    <div class="tilt-card glass p-2 rounded-3xl border border-white/60 shadow-2xl relative z-20 bg-white/50 backdrop-blur-xl">
+                        <div class="tilt-inner bg-slate-900 rounded-[1.25rem] overflow-hidden border border-slate-700 shadow-inner">
+                            <!-- Mac-style Window Header -->
+                            <div class="flex items-center gap-2 px-4 py-3 border-b border-slate-800 bg-slate-900/50">
+                                <div class="w-3 h-3 rounded-full bg-rose-500"></div>
+                                <div class="w-3 h-3 rounded-full bg-amber-500"></div>
+                                <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+                                <div class="text-xs font-medium text-slate-400 font-mono flex-1 text-center pr-8">docdiff_report_v2.html</div>
+                            </div>
+                            
+                            <!-- Fake Diff UI -->
+                            <div class="p-6 font-mono text-sm space-y-3">
+                                <!-- Unchanged line -->
+                                <div class="flex gap-4 text-slate-400 px-2">
+                                    <span class="select-none opacity-50">1</span>
+                                    <span>The project aims to automate manual reviews.</span>
+                                </div>
+                                <!-- Deleted line -->
+                                <div class="flex gap-4 bg-diff-delBg/10 text-diff-del px-2 py-1 rounded relative group">
+                                    <span class="select-none opacity-80">-</span>
+                                    <span class="line-through opacity-70">This process currently takes three hours per document.</span>
+                                </div>
+                                <!-- Added line -->
+                                <div class="flex gap-4 bg-diff-addBg/10 text-diff-add px-2 py-1 rounded relative">
+                                    <span class="select-none opacity-80">+</span>
+                                    <span class="font-medium">With DocDiff, the review process is reduced to seconds, ensuring 100% accuracy.</span>
+                                </div>
+                                <!-- Unchanged line -->
+                                <div class="flex gap-4 text-slate-400 px-2">
+                                    <span class="select-none opacity-50">4</span>
+                                    <span>The system supports TXT, MD, DOCX, and PDF formats.</span>
+                                </div>
+                                <!-- Modified line simulated -->
+                                <div class="flex gap-4 bg-diff-modBg/10 text-diff-mod px-2 py-1 rounded mt-4">
+                                    <span class="select-none opacity-80">~</span>
+                                    <span>Final approval pending <span class="bg-diff-modBg/30 px-1 rounded">management</span> <span class="font-bold underline decoration-diff-mod underline-offset-2">board</span> review.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Floating decorative elements -->
+                    <div class="absolute -right-6 -top-6 p-4 glass rounded-2xl shadow-xl z-30 animate-bounce" style="animation-duration: 3s;">
+                        <i class="ph-duotone ph-file-pdf text-4xl text-rose-500"></i>
+                    </div>
+                    <div class="absolute -left-10 bottom-10 p-4 glass rounded-2xl shadow-xl z-30 animate-bounce" style="animation-delay: 1.5s; animation-duration: 4s;">
+                        <i class="ph-duotone ph-file-doc text-4xl text-blue-500"></i>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="features" class="py-24 px-4 sm:px-6 lg:px-8 relative z-10 bg-white/40 border-y border-white/50 backdrop-blur-sm">
+            <div class="max-w-7xl mx-auto">
+                <div class="text-center mb-16 reveal">
+                    <h2 class="text-sm font-bold text-brand-DEFAULT tracking-widest uppercase mb-2">Why DocDiff</h2>
+                    <h3 class="text-3xl md:text-4xl font-display font-bold text-slate-900">Everything you need to review with confidence</h3>
+                    <p class="text-slate-600 mt-4 max-w-2xl mx-auto">Whether you're approving a contract, grading a resubmission, or auditing a policy — see exactly what changed, not just that something did.</p>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-8">
+                    <!-- Feature 1 -->
+                    <div class="glass-card p-8 rounded-3xl reveal group">
+                        <div class="w-14 h-14 rounded-2xl bg-diff-addBg text-diff-add flex items-center justify-center text-2xl mb-6 shadow-inner group-hover:scale-110 transition-transform">
+                            <i class="ph-bold ph-plus"></i>
+                        </div>
+                        <h4 class="text-xl font-bold text-slate-900 mb-3">Spot what's new</h4>
+                        <p class="text-slate-600 leading-relaxed">New paragraphs and clauses stand out instantly — so you can focus on fresh content instead of re-reading everything.</p>
+                    </div>
+
+                    <!-- Feature 2 -->
+                    <div class="glass-card p-8 rounded-3xl reveal group" style="transition-delay: 100ms;">
+                        <div class="w-14 h-14 rounded-2xl bg-diff-delBg text-diff-del flex items-center justify-center text-2xl mb-6 shadow-inner group-hover:scale-110 transition-transform">
+                            <i class="ph-bold ph-minus"></i>
+                        </div>
+                        <h4 class="text-xl font-bold text-slate-900 mb-3">Catch what disappeared</h4>
+                        <p class="text-slate-600 leading-relaxed">Removed text is clearly struck through. Nothing slips through when clauses or requirements get quietly dropped.</p>
+                    </div>
+
+                    <!-- Feature 3 -->
+                    <div class="glass-card p-8 rounded-3xl reveal group" style="transition-delay: 200ms;">
+                        <div class="w-14 h-14 rounded-2xl bg-diff-modBg text-diff-mod flex items-center justify-center text-2xl mb-6 shadow-inner group-hover:scale-110 transition-transform">
+                            <i class="ph-bold ph-pencil-simple"></i>
+                        </div>
+                        <h4 class="text-xl font-bold text-slate-900 mb-3">Pinpoint every edit</h4>
+                        <p class="text-slate-600 leading-relaxed">Small wording tweaks? Word-level highlighting shows the exact characters that changed — not just the whole paragraph.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="how-it-works" class="py-24 px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="max-w-5xl mx-auto">
+                <div class="text-center mb-14 reveal">
+                    <h2 class="text-sm font-bold text-brand-DEFAULT tracking-widest uppercase mb-2">Three steps</h2>
+                    <h3 class="text-3xl md:text-4xl font-display font-bold text-slate-900">From upload to insight in under a minute</h3>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-6 reveal">
+                    <div class="relative bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
+                        <div class="w-10 h-10 rounded-full bg-slate-900 text-white font-display font-bold flex items-center justify-center mb-4">1</div>
+                        <h4 class="font-bold text-slate-900 mb-2 flex items-center gap-2"><i class="ph-bold ph-upload-simple text-brand-DEFAULT"></i> Upload your versions</h4>
+                        <p class="text-sm text-slate-600 leading-relaxed">Add files in order — Draft 1, Reviewed, Final. Label them so your report reads naturally.</p>
+                    </div>
+                    <div class="relative bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
+                        <div class="w-10 h-10 rounded-full bg-slate-900 text-white font-display font-bold flex items-center justify-center mb-4">2</div>
+                        <h4 class="font-bold text-slate-900 mb-2 flex items-center gap-2"><i class="ph-bold ph-git-diff text-brand-DEFAULT"></i> DocDiff analyzes</h4>
+                        <p class="text-sm text-slate-600 leading-relaxed">Blocks are matched across versions. Additions, deletions, and edits are classified automatically.</p>
+                    </div>
+                    <div class="relative bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
+                        <div class="w-10 h-10 rounded-full bg-slate-900 text-white font-display font-bold flex items-center justify-center mb-4">3</div>
+                        <h4 class="font-bold text-slate-900 mb-2 flex items-center gap-2"><i class="ph-bold ph-magnifying-glass text-brand-DEFAULT"></i> Review your report</h4>
+                        <p class="text-sm text-slate-600 leading-relaxed">Filter by change type, download a summary, and approve with full visibility into every edit.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="mentorship" class="py-16 px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="max-w-3xl mx-auto text-center reveal">
+                <p class="text-sm text-slate-500 leading-relaxed">
+                    Built for focused, reliable document version reviews.
+                </p>
+            </div>
+        </section>
+        
+        <section class="py-20 px-4 relative z-10 reveal">
+            <div class="max-w-3xl mx-auto text-center bg-gradient-to-br from-slate-900 to-slate-800 rounded-[2rem] p-10 md:p-14 shadow-2xl shadow-slate-900/30 text-white relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-48 h-48 bg-brand-DEFAULT/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+                <h2 class="text-3xl font-display font-bold mb-4 relative z-10">Ready when you are.</h2>
+                <p class="text-slate-300 mb-8 relative z-10 max-w-md mx-auto">Upload your first two versions and see the difference in seconds — no account needed.</p>
+                <div class="magnetic-wrap relative z-10" data-magnetic>
+                    <a href="{{ url_for('workspace') }}" class="inline-flex items-center gap-2 px-8 py-4 bg-white text-slate-900 rounded-full text-lg font-bold transition-all shadow-xl hover:shadow-white/20 hover:-translate-y-0.5 btn-shine">
+                        Open workspace <i class="ph-bold ph-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-white border-t border-slate-200/60 pt-16 pb-8 mt-auto relative z-10">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+                <div class="md:col-span-2">
+                    <h3 class="font-bold text-xl text-slate-900 mb-2 flex items-center gap-2">
+                        <div class="w-8 h-8 rounded bg-gradient-to-br from-blue-600 to-brand-DEFAULT flex items-center justify-center text-white font-serif text-sm">DD</div>
+                        DocDiff
+                    </h3>
+                    <p class="text-sm text-slate-500 leading-relaxed mb-6 max-w-sm">
+                        A focused workspace for comparing document versions, understanding changes, and producing clear review reports.
+                    </p>
+                    <div class="flex flex-wrap gap-4">
+                        <a href="{{ url_for('workspace') }}" class="w-10 h-10 rounded-full bg-slate-50 shadow-sm border border-slate-200 flex items-center justify-center text-slate-600 hover:text-brand-DEFAULT hover:border-brand-light transition-colors" title="Open workspace"><i class="ph-bold ph-arrow-right text-xl"></i></a>
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold text-slate-900 mb-4">Important Links</h4>
+                    <ul class="space-y-2 text-sm text-slate-600">
+                        <li><a href="{{ url_for('home') }}" class="hover:text-brand-DEFAULT transition-colors">About DocDiff</a></li>
+                        <li><a href="{{ url_for('workspace') }}" class="hover:text-brand-DEFAULT transition-colors">Open workspace</a></li>
+                        <li><a href="#how-it-works" class="hover:text-brand-DEFAULT transition-colors">How it works</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold text-slate-900 mb-4">Built for clarity</h4>
+                    <p class="text-sm text-slate-500 leading-relaxed mb-4">
+                        Compare drafts, revisions, and final documents in one place with readable, actionable differences.
+                    </p>
+                </div>
+            </div>
+            
+            <div class="border-t border-slate-100 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+                <p class="text-xs text-slate-500">&copy; 2026 DocDiff · Document Comparator</p>
+                <div class="text-xs text-slate-500 flex items-center gap-1">
+                    Made with <i class="ph-fill ph-heart text-red-400"></i> for clearer reviews
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Personalized greeting based on time of day
+        function personalizeHero() {
+            const hour = new Date().getHours();
+            const greetingEl = document.getElementById('hero-greeting');
+            const contextEl = document.getElementById('hero-context');
+            const visited = localStorage.getItem('docdiff_visited');
+
+            let greeting = 'Good evening.';
+            if (hour >= 5 && hour < 12) greeting = 'Good morning.';
+            else if (hour >= 12 && hour < 17) greeting = 'Good afternoon.';
+            else if (hour >= 22 || hour < 5) greeting = 'Burning the midnight oil?';
+
+            if (visited) {
+                greeting = greeting.replace('.', ', welcome back.');
+            } else {
+                greeting = greeting.replace('.', ' — great to have you here.');
+                localStorage.setItem('docdiff_visited', '1');
+            }
+
+            if (greetingEl) greetingEl.textContent = greeting;
+
+            const contexts = [
+                'Perfect for drafts, finals & policy updates',
+                'Your side-by-side review, in seconds',
+                'Compare up to 5 versions at once',
+            ];
+            if (contextEl) {
+                const dayIndex = new Date().getDay() % contexts.length;
+                contextEl.textContent = contexts[dayIndex];
+            }
+        }
+
+        // Mobile menu toggle
+        function initMobileMenu() {
+            const btn = document.getElementById('mobile-menu-btn');
+            const menu = document.getElementById('mobile-menu');
+            const iconOpen = document.getElementById('menu-icon-open');
+            const iconClose = document.getElementById('menu-icon-close');
+
+            if (!btn || !menu) return;
+
+            btn.addEventListener('click', () => {
+                const isOpen = !menu.classList.contains('hidden');
+                menu.classList.toggle('hidden', isOpen);
+                iconOpen.classList.toggle('hidden', !isOpen);
+                iconClose.classList.toggle('hidden', isOpen);
+            });
+
+            document.querySelectorAll('.mobile-nav-link').forEach(link => {
+                link.addEventListener('click', () => {
+                    menu.classList.add('hidden');
+                    iconOpen.classList.remove('hidden');
+                    iconClose.classList.add('hidden');
+                });
+            });
+        }
+
+        // Sticky Navbar Effect
+        window.addEventListener('scroll', () => {
+            const nav = document.getElementById('navbar');
+            if (window.scrollY > 20) {
+                nav.classList.add('shadow-sm', 'bg-white/80');
+                nav.classList.remove('bg-transparent');
+            } else {
+                nav.classList.remove('shadow-sm', 'bg-white/80');
+            }
+        });
+
+        // Scroll Reveal Animation
+        function reveal() {
+            const reveals = document.querySelectorAll('.reveal');
+            for (let i = 0; i < reveals.length; i++) {
+                const windowHeight = window.innerHeight;
+                const elementTop = reveals[i].getBoundingClientRect().top;
+                const elementVisible = 100;
+                
+                if (elementTop < windowHeight - elementVisible) {
+                    reveals[i].classList.add('active');
+                }
+            }
+        }
+        
+        window.addEventListener('scroll', reveal);
+        reveal(); // Trigger once on load
+
+        document.addEventListener('DOMContentLoaded', () => {
+            personalizeHero();
+            initMobileMenu();
+            
+            // Magnetic Buttons Logic (Premium UI Interaction)
+            const magnets = document.querySelectorAll('[data-magnetic]');
+            
+            magnets.forEach((magnet) => {
+                magnet.addEventListener('mousemove', (e) => {
+                    const position = magnet.getBoundingClientRect();
+                    // Calculate distance from center of the button
+                    const x = e.clientX - position.left - position.width / 2;
+                    const y = e.clientY - position.top - position.height / 2;
+                    
+                    // Apply subtle translation (magnetic pull)
+                    magnet.style.transform = `translate(${x * 0.25}px, ${y * 0.25}px)`;
+                });
+                
+                magnet.addEventListener('mouseleave', () => {
+                    // Snap back to original position
+                    magnet.style.transform = 'translate(0px, 0px)';
+                });
+            });
+
+            // 3D Parallax Tilt for Hero Visual
+            const visualContainer = document.getElementById('hero-visual-container');
+            const tiltCard = document.querySelector('.tilt-card');
+            
+            if (visualContainer && tiltCard) {
+                document.addEventListener('mousemove', (e) => {
+                    // Only apply if looking at the top half of the screen to save performance
+                    if(window.scrollY > 600) return;
+                    
+                    // Calculate rotation based on cursor position relative to screen center
+                    const xAxis = (window.innerWidth / 2 - e.pageX) / 45;
+                    const yAxis = (window.innerHeight / 2 - e.pageY) / 45;
+                    
+                    // Apply rotation (inverted for natural feel)
+                    tiltCard.style.transform = `rotateY(${xAxis}deg) rotateX(${yAxis}deg)`;
+                });
+                
+                // Reset when mouse leaves window
+                document.addEventListener('mouseleave', () => {
+                    tiltCard.style.transform = `rotateY(0deg) rotateX(0deg)`;
+                });
+            }
+        });
+    </script>
+</body>
+</html>

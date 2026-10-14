@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Not found — DocDiff</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a href="{{ url_for('workspace') }}" class="wordmark">Doc<span class="diff-dot">Diff</span></a>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="empty-state">
+      That report doesn't exist or has expired. <a href="{{ url_for('workspace') }}">Start a new comparison &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

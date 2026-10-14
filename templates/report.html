@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detailed Diff Report — DocDiff</title>
+    
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: { light: '#3BA4E8', DEFAULT: '#1a7bc4', dark: '#0a1220' },
+                        diff: {
+                            add: '#059669', addBg: '#d1fae5', addLight: '#ecfdf5',
+                            del: '#e11d48', delBg: '#ffe4e6', delLight: '#fff1f2',
+                            mod: '#2563eb', modBg: '#dbeafe', modLight: '#eff6ff',
+                            unchanged: '#64748b', unchangedBg: '#f1f5f9'
+                        }
+                    },
+                    animation: {
+                        'fade-in-up': 'fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                    },
+                    keyframes: {
+                        fadeInUp: {
+                            '0%': { opacity: 0, transform: 'translateY(20px)' },
+                            '100%': { opacity: 1, transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { background-color: #f8fafc; color: #1e293b; }
+        
+        /* Hide scrollbar for clean UI */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Mesh background effect */
+        .mesh-bg {
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(210, 100%, 75%, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, hsla(190, 100%, 70%, 0.1) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, hsla(220, 100%, 80%, 0.1) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        /* Card transition utilities */
+        .change-row { transition: all 0.3s ease; }
+        .change-row.hidden { display: none !important; }
+        
+        /* Inline diff highlights (if backend provides <ins>/<del> tags) */
+        ins { background-color: #a7f3d0; color: #065f46; padding: 0 4px; border-radius: 4px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); text-decoration: none; }
+        del { background-color: #fecdd3; color: #9f1239; text-decoration: line-through; padding: 0 4px; border-radius: 4px; font-weight: 500; }
+        ins.tok, del.tok { display: inline; }
+    </style>
+</head>
+<body class="antialiased mesh-bg min-h-screen flex flex-col relative overflow-x-hidden">
+
+    <header class="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/60 shadow-sm transition-all duration-300" id="header">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <a href="{{ url_for('workspace') }}" class="flex items-center gap-3 group text-decoration-none">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-brand-DEFAULT flex items-center justify-center text-white font-serif font-bold text-lg shadow-md group-hover:scale-105 transition-transform">
+                    DD
+                </div>
+                <div>
+                    <span class="font-bold text-xl tracking-tight text-slate-900">Doc<span class="text-brand-DEFAULT">Diff</span></span>
+                    <p class="text-[10px] font-semibold tracking-wider text-slate-500 uppercase leading-none mt-0.5">Report #{{ report.id }}</p>
+                </div>
+            </a>
+            <div class="flex items-center gap-4">
+                {% if report.id %}
+                <a href="{{ url_for('download_report', report_id=report.id) }}" class="hidden sm:flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-lg transition-colors">
+                    <i class="ph-bold ph-download-simple"></i> Download Report
+                </a>
+                {% endif %}
+                <a href="{{ url_for('workspace') }}" class="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-lg transition-colors shadow-md">
+                    New Compare <i class="ph-bold ph-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow pt-28 pb-20 max-w-7xl mx-auto px-6 w-full">
+        
+        <!-- Report Meta -->
+        <section class="mb-12 animate-fade-in-up">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-brand-DEFAULT text-xs font-bold uppercase tracking-wider mb-4">
+                <i class="ph-fill ph-file-text"></i> Detailed Difference Report
+            </div>
+            
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div>
+                    <h1 class="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight mb-3">
+                        {{ report.version_labels[0] }} <span class="text-slate-400 mx-2 font-light">→</span> {{ report.version_labels[-1] }}
+                    </h1>
+                    <p class="text-slate-500 text-sm flex items-center gap-2">
+                        <i class="ph-bold ph-clock"></i> Generated on {{ report.created }}
+                    </p>
+                    <p class="text-slate-500 text-sm mt-2 font-mono text-xs">
+                        Route: {% for label in report.version_labels %}{{ label }}{% if not loop.last %} &rarr; {% endif %}{% endfor %}
+                    </p>
+                    {% if report.versions %}
+                    <p class="text-slate-500 text-xs mt-2">
+                        {% for v in report.versions %}
+                        <span class="inline-flex items-center gap-1 mr-3"><i class="ph-bold ph-stack"></i> {{ v.label }}: {{ v.block_count }} blocks</span>
+                        {% endfor %}
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+
+        <section class="mb-10 animate-fade-in-up" style="animation-delay: 0.05s;">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/60">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-900 mb-2">How to read this report</h2>
+                        <p class="text-slate-600 text-sm leading-relaxed max-w-3xl">
+                            Each comparison shows the old document version on the left and the new version on the right.
+                            Additions are brand new blocks, deletions are removed blocks, and modifications show the exact text that was replaced.
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2 text-xs font-bold uppercase tracking-wider">
+                        <span class="px-2 py-1 rounded bg-diff-addBg text-diff-add">Addition = new text</span>
+                        <span class="px-2 py-1 rounded bg-diff-delBg text-diff-del">Deletion = removed text</span>
+                        <span class="px-2 py-1 rounded bg-diff-modBg text-diff-mod">Modification = replaced text</span>
+                    </div>
+                </div>
+                <div class="grid md:grid-cols-3 gap-4 text-sm text-slate-600">
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="font-semibold text-slate-900 mb-1">Old version</div>
+                        <p>The left side of each change block shows the content that existed before the update.</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="font-semibold text-slate-900 mb-1">New version</div>
+                        <p>The right side of each change block shows the content written in the latest version.</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="font-semibold text-slate-900 mb-1">What changed</div>
+                        <p>The summary chips and counters tell you how many blocks were added, removed, or edited.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Summary Stats Bar -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12 animate-fade-in-up" style="animation-delay: 0.1s;">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
+                <div class="absolute top-0 right-0 w-16 h-16 bg-diff-addBg rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
+                <span class="text-slate-500 text-sm font-semibold mb-1">Additions</span>
+                <span class="text-3xl font-black text-diff-add">{{ report.overall.addition }}</span>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
+                <div class="absolute top-0 right-0 w-16 h-16 bg-diff-delBg rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
+                <span class="text-slate-500 text-sm font-semibold mb-1">Deletions</span>
+                <span class="text-3xl font-black text-diff-del">{{ report.overall.deletion }}</span>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
+                <div class="absolute top-0 right-0 w-16 h-16 bg-diff-modBg rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
+                <span class="text-slate-500 text-sm font-semibold mb-1">Modifications</span>
+                <span class="text-3xl font-black text-diff-mod">{{ report.overall.modification }}</span>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/60 flex flex-col relative overflow-hidden group">
+                <div class="absolute top-0 right-0 w-16 h-16 bg-slate-100 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
+                <span class="text-slate-500 text-sm font-semibold mb-1">Total Changes</span>
+                <span class="text-3xl font-black text-slate-800">{{ report.overall.total_changes }}</span>
+            </div>
+        </section>
+
+        {% for comp in report.comparisons %}
+        <section class="comparison-section mb-16 animate-fade-in-up" style="animation-delay: 0.2s;" data-section="{{ loop.index }}">
+            
+            <!-- Comparison Header -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b border-slate-200 pb-4">
+                <h2 class="text-2xl font-bold text-slate-900 flex items-center gap-3">
+                    {{ comp.old_label }} <i class="ph-bold ph-arrow-right text-slate-400"></i> {{ comp.new_label }}
+                </h2>
+                <div class="flex gap-2 text-xs font-bold uppercase tracking-wider">
+                    <span class="px-2 py-1 rounded bg-diff-addBg text-diff-add">+{{ comp.summary.addition }}</span>
+                    <span class="px-2 py-1 rounded bg-diff-delBg text-diff-del">-{{ comp.summary.deletion }}</span>
+                    <span class="px-2 py-1 rounded bg-diff-modBg text-diff-mod">~{{ comp.summary.modification }}</span>
+                </div>
+            </div>
+
+            {% if comp.ai_summary %}
+            <div class="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-6 shadow-sm">
+                <div class="flex items-start gap-4">
+                    <div class="w-10 h-10 rounded-xl bg-white text-brand-DEFAULT flex items-center justify-center text-xl shrink-0 shadow-sm border border-blue-100">
+                        <i class="ph-duotone ph-sparkle"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 mb-2 flex items-center gap-2">
+                            Review Summary
+                            {% if report.ai_enabled %}
+                            <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700">AI-assisted</span>
+                            {% else %}
+                            <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">Auto-generated</span>
+                            {% endif %}
+                        </h3>
+                        <p class="text-slate-700 text-sm leading-relaxed">{{ comp.ai_summary }}</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Sticky Filter Bar -->
+            <div class="filter-row sticky top-[4.5rem] z-40 bg-slate-50/90 backdrop-blur-md py-4 mb-8 -mx-6 px-6 border-y border-slate-200/60 flex flex-wrap gap-2" data-filter-group="{{ loop.index }}">
+                <button class="filter-btn active px-4 py-2 rounded-xl text-sm font-semibold bg-slate-800 text-white shadow-md transition-all" data-filter="all">All Changes</button>
+                <button class="filter-btn px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200 text-slate-600 hover:bg-diff-addLight hover:text-diff-add hover:border-diff-add transition-all" data-filter="addition">Additions</button>
+                <button class="filter-btn px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200 text-slate-600 hover:bg-diff-delLight hover:text-diff-del hover:border-diff-del transition-all" data-filter="deletion">Deletions</button>
+                <button class="filter-btn px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200 text-slate-600 hover:bg-diff-modLight hover:text-diff-mod hover:border-diff-mod transition-all" data-filter="modification">Modifications</button>
+                <div class="w-px h-6 bg-slate-300 mx-2 self-center"></div>
+                <button class="filter-toggle px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all flex items-center gap-2" data-filter="unchanged">
+                    <i class="ph-bold ph-eye-slash"></i> Show Unchanged
+                </button>
+            </div>
+
+            <!-- Detailed Comparison Ledger -->
+            <div class="flex flex-col gap-6 ledger-container">
+                
+                {% for c in comp.changes %}
+                
+                {% if c.type == 'modification' %}
+                <!-- Modification Block -->
+                <div class="change-row bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden" data-type="modification">
+                    <div class="bg-slate-50 border-b border-slate-200/60 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-diff-modBg text-diff-mod flex items-center justify-center text-xl shrink-0">
+                                <i class="ph-bold ph-pencil-simple"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-900 flex items-center gap-2">
+                                    Wording Modified
+                                    {% if c.change_kind == 'replacement' %}
+                                    <span class="bg-diff-modBg text-diff-mod text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded">Replaced</span>
+                                    {% endif %}
+                                </h3>
+                                <p class="text-xs font-mono text-slate-500 mt-0.5">Block Ref: #{{ c.old_index }} &rarr; #{{ c.new_index }}</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
+                            <span class="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm"><i class="ph-fill ph-file"></i> {{ comp.old_label }} &rarr; {{ comp.new_label }}</span>
+                        </div>
+                    </div>
+
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <!-- Before Box -->
+                            <div class="rounded-xl border border-rose-200 bg-rose-50/30 overflow-hidden">
+                                <div class="bg-rose-100/50 px-4 py-2 border-b border-rose-200 flex items-center justify-between">
+                                    <span class="text-xs font-bold text-rose-700 uppercase tracking-wider">Before ({{ comp.old_label }})</span>
+                                    <i class="ph-bold ph-minus-circle text-rose-500"></i>
+                                </div>
+                                <div class="p-4 text-slate-800 text-sm leading-relaxed font-mono">
+                                    {% if c.old_tokens %}
+                                    <p>{{ c.old_tokens | render_tokens }}</p>
+                                    {% else %}
+                                    {% for item in c.old_text|structure_text %}
+                                        <p>{{ item }}</p>
+                                    {% endfor %}
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- After Box -->
+                            <div class="rounded-xl border border-emerald-200 bg-emerald-50/30 overflow-hidden">
+                                <div class="bg-emerald-100/50 px-4 py-2 border-b border-emerald-200 flex items-center justify-between">
+                                    <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider">After ({{ comp.new_label }})</span>
+                                    <i class="ph-bold ph-plus-circle text-emerald-500"></i>
+                                </div>
+                                <div class="p-4 text-slate-800 text-sm leading-relaxed font-mono">
+                                    {% if c.new_tokens %}
+                                    <p>{{ c.new_tokens | render_tokens }}</p>
+                                    {% else %}
+                                    {% for item in c.new_text|structure_text %}
+                                        <p>{{ item }}</p>
+                                    {% endfor %}
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% elif c.type == 'addition' %}
+                <!-- Addition Block -->
+                <div class="change-row bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden" data-type="addition">
+                    <div class="bg-slate-50 border-b border-slate-200/60 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-diff-addBg text-diff-add flex items-center justify-center text-xl shrink-0">
+                                <i class="ph-bold ph-plus"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-900">New Content Added</h3>
+                                <p class="text-xs font-mono text-slate-500 mt-0.5">Block Ref: New #{{ c.new_index }}</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
+                            <span class="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm"><i class="ph-fill ph-file"></i> Present in {{ comp.new_label }}</span>
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                            <div class="text-slate-800 text-sm leading-relaxed font-mono border-l-4 border-emerald-400 pl-4 space-y-2">
+                                {% for item in c.new_text|structure_text %}
+                                    <p><ins class="no-underline">{{ item }}</ins></p>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% elif c.type == 'deletion' %}
+                <!-- Deletion Block -->
+                <div class="change-row bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden" data-type="deletion">
+                    <div class="bg-slate-50 border-b border-slate-200/60 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-diff-delBg text-diff-del flex items-center justify-center text-xl shrink-0">
+                                <i class="ph-bold ph-minus"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-900">Content Removed</h3>
+                                <p class="text-xs font-mono text-slate-500 mt-0.5">Block Ref: Old #{{ c.old_index }}</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
+                            <span class="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm"><i class="ph-fill ph-file"></i> Missing from {{ comp.new_label }}</span>
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        <div class="rounded-xl border border-rose-200 bg-rose-50/50 p-4 opacity-80">
+                            <div class="text-slate-600 text-sm leading-relaxed font-mono border-l-4 border-rose-400 pl-4 space-y-2 line-through">
+                                {% for item in c.old_text|structure_text %}
+                                    <p>{{ item }}</p>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                {% else %}
+                <!-- Unchanged Block -->
+                <div class="change-row hidden bg-slate-50 rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden opacity-70" data-type="unchanged">
+                    <div class="p-4 flex items-start gap-4">
+                        <div class="w-8 h-8 rounded-lg bg-slate-200 text-slate-500 flex items-center justify-center text-lg shrink-0 mt-1">
+                            <i class="ph-bold ph-equals"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-center mb-2">
+                                <h3 class="font-bold text-slate-600 text-sm">Unchanged Block</h3>
+                                <span class="text-xs font-mono text-slate-400">Block #{{ c.old_index }} &rarr; #{{ c.new_index }}</span>
+                            </div>
+                            <p class="text-slate-500 text-xs leading-relaxed font-mono truncate">
+                                {{ c.old_text }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+
+    </main>
+
+    <footer class="bg-white border-t border-slate-200/60 pt-12 pb-8 mt-auto">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+                <div class="md:col-span-2">
+                    <h3 class="font-bold text-xl text-slate-900 mb-2 flex items-center gap-2">
+                        <div class="w-8 h-8 rounded bg-gradient-to-br from-blue-600 to-brand-DEFAULT flex items-center justify-center text-white font-serif text-sm">DD</div>
+                        DocDiff
+                    </h3>
+                    <p class="text-sm text-slate-500 leading-relaxed mb-4 max-w-lg">
+                        A clear, focused report of what changed between your document versions.
+                    </p>
+                </div>
+                <div>
+                    <h4 class="font-bold text-slate-900 mb-4">Report actions</h4>
+                    <ul class="space-y-2 text-sm text-slate-600">
+                        <li><a href="{{ url_for('workspace') }}" class="hover:text-brand-DEFAULT transition-colors flex items-center gap-2"><i class="ph-bold ph-plus-circle"></i> New comparison</a></li>
+                        <li><a href="{{ url_for('download_report', report_id=report.id) }}" class="hover:text-brand-DEFAULT transition-colors flex items-center gap-2"><i class="ph-bold ph-download-simple"></i> Download report</a></li>
+                        <li><a href="{{ url_for('home') }}" class="hover:text-brand-DEFAULT transition-colors flex items-center gap-2"><i class="ph-bold ph-house"></i> DocDiff home</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-slate-100 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+                <p class="text-xs text-slate-500">&copy; 2026 DocDiff · Document Comparator.</p>
+                <div class="text-xs text-slate-500">DocDiff · Report #{{ report.id }}</div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Apply filtering scoped to each comparison block
+            document.querySelectorAll('.filter-row').forEach(group => {
+                const section = group.closest('.comparison-section');
+                const rows = section.querySelectorAll('.change-row');
+                const filterBtns = group.querySelectorAll('.filter-btn');
+                const toggleBtn = group.querySelector('.filter-toggle');
+
+                let currentFilter = 'all';
+                let showUnchanged = false;
+
+                function applyFilters() {
+                    rows.forEach(row => {
+                        const type = row.dataset.type;
+                        
+                        if (type === 'unchanged') {
+                            if (showUnchanged) {
+                                row.classList.remove('hidden');
+                            } else {
+                                row.classList.add('hidden');
+                            }
+                            return;
+                        }
+
+                        if (currentFilter === 'all' || currentFilter === type) {
+                            row.classList.remove('hidden');
+                        } else {
+                            row.classList.add('hidden');
+                        }
+                    });
+                }
+
+                // Initial setup
+                applyFilters();
+
+                // Standard Filters
+                filterBtns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        // Avoid triggering logic for the toggle button
+                        if(btn.dataset.filter === 'unchanged') return;
+
+                        filterBtns.forEach(b => {
+                            if(b.dataset.filter !== 'unchanged'){
+                                b.classList.remove('bg-slate-800', 'text-white', 'shadow-md');
+                                b.classList.add('bg-white', 'text-slate-600');
+                            }
+                        });
+
+                        btn.classList.remove('bg-white', 'text-slate-600');
+                        btn.classList.add('bg-slate-800', 'text-white', 'shadow-md');
+
+                        currentFilter = btn.dataset.filter;
+                        applyFilters();
+                    });
+                });
+
+                // Unchanged Toggle
+                if(toggleBtn) {
+                    toggleBtn.addEventListener('click', () => {
+                        showUnchanged = !showUnchanged;
+                        
+                        if (showUnchanged) {
+                            toggleBtn.classList.remove('bg-white', 'text-slate-600');
+                            toggleBtn.classList.add('bg-slate-200', 'text-slate-800');
+                            toggleBtn.innerHTML = '<i class="ph-bold ph-eye"></i> Hide Unchanged';
+                        } else {
+                            toggleBtn.classList.add('bg-white', 'text-slate-600');
+                            toggleBtn.classList.remove('bg-slate-200', 'text-slate-800');
+                            toggleBtn.innerHTML = '<i class="ph-bold ph-eye-slash"></i> Show Unchanged';
+                        }
+                        
+                        applyFilters();
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

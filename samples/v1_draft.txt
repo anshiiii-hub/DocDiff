@@ -1,0 +1,9 @@
+DocDiff — Project Overview
+
+This project aims to automate manual document review by comparing two or more versions of a report, assignment, or policy file and producing a structured difference report.
+
+The system identifies additions, deletions, and modifications at the block level. For edited blocks, it further highlights word-level changes so reviewers can see exactly what changed.
+
+Supported input formats include plain text (.txt), Markdown (.md), Word (.docx), and PDF (.pdf).
+
+The review process that previously took hours can now be completed in seconds with full accuracy across consecutive version pairs.
